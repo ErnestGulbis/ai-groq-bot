@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>ИИ-чат</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  /* ============ ТОКЕНЫ ТЕМЫ ============ */
+  :root {
+    --bg: #ffffff;
+    --panel: #f6f6f8;
+    --panel-2: #eeeef3;
+    --text: #1a1a1f;
+    --text-dim: #6b6b78;
+    --border: #e4e4ec;
+    --accent: #5b5bd6;
+    --accent-soft: #ecebfb;
+    --user-bubble: #5b5bd6;
+    --user-text: #ffffff;
+    --ai-bubble: #f4f4f7;
+    --danger: #e5484d;
+    --radius: 16px;
+    --shadow: 0 1px 3px rgba(0,0,0,.06);
+  }
+  [data-theme="dark"] {
+    --bg: #0f0f14;
+    --panel: #17171f;
+    --panel-2: #1e1e28;
+    --text: #ececf1;
+    --text-dim: #9a9aa8;
+    --border: #26262f;
+    --accent: #7c7cf0;
+    --accent-soft: #22223a;
+    --user-bubble: #5b5bd6;
+    --user-text: #ffffff;
+    --ai-bubble: #1c1c26;
+    --shadow: 0 1px 3px rgba(0,0,0,.4);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, sans-serif;
+    display: flex; flex-direction: column;
+    transition: background .25s, color .25s;
+  }
+
+  /* ============ ШАПКА ============ */
+  header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+    position: sticky; top: 0; z-index: 10;
+  }
+  .title { font-weight: 600; font-size: 16px; margin-right: auto; }
+  .role-select {
+    appearance: none;
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 6px 26px 6px 10px; font-size: 13px; cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238a8a97' fill='none' stroke-width='1.5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 9px center;
+  }
+  .icon-btn {
+    display: grid; place-items: center;
+    width: 36px; height: 36px;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; cursor: pointer; color: var(--text);
+  }
+  .icon-btn:active { transform: scale(.94); }
+  .icon-btn svg { width: 18px; height: 18px; }
+
+  /* ============ ЛЕНТА СООБЩЕНИЙ ============ */
+  #chat {
+    flex: 1; overflow-y: auto;
+    padding: 16px 12px 8px;
+    display: flex; flex-direction: column; gap: 14px;
+    scroll-behavior: smooth;
+  }
+  .msg { display: flex; }
+  .msg.user { justify-content: flex-end; }
+  .bubble {
+    max-width: 82%;
+    padding: 10px 14px; border-radius: var(--radius);
+    font-size: 15px; line-height: 1.5; word-wrap: break-word;
+    white-space: normal;
+  }
+  .msg.user .bubble {
+    background: var(--user-bubble); color: var(--user-text);
+    border-bottom-right-radius: 5px;
+  }
+  .msg.ai .bubble {
+    background: var(--ai-bubble); color: var(--text);
+    border-bottom-left-radius: 5px;
+  }
+  .bubble pre {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px; margin: 8px 0;
+    overflow-x: auto; font-size: 13px;
+  }
+  .bubble code {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: .92em;
+  }
+  .bubble :not(pre) > code {
+    background: var(--panel-2); padding: 1px 5px; border-radius: 5px;
+  }
+
+  /* обёртка ИИ-сообщения + кнопка копировать */
+  .ai-wrap { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; max-width: 82%; }
+  .copy-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: none; border: none; cursor: pointer;
+    color: var(--text-dim); font-size: 12px; padding: 2px 4px;
+    opacity: 0; transition: opacity .15s;
+  }
+  .ai-wrap:hover .copy-btn { opacity: 1; }
+  .copy-btn svg { width: 13px; height: 13px; }
+  .copy-btn.done { color: var(--accent); }
+
+  /* курсор печати */
+  .cursor::after {
+    content: "▋"; margin-left: 1px;
+    animation: blink 1s steps(2) infinite; color: var(--accent);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ============ ПУСТОЙ ЭКРАН ============ */
+  #empty {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 20px;
+    padding: 24px; text-align: center;
+  }
+  #empty h2 { font-size: 20px; font-weight: 600; }
+  #empty p { color: var(--text-dim); font-size: 14px; }
+  .chips { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 420px; }
+  .chip {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px; text-align: left;
+    font-size: 13px; cursor: pointer; color: var(--text);
+    transition: border-color .15s, background .15s;
+  }
+  .chip:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .chip b { display: block; margin-bottom: 3px; font-size: 13px; }
+  .chip span { color: var(--text-dim); font-size: 12px; }
+
+  /* ============ ВВОД ============ */
+  .input-bar {
+    display: flex; align-items: flex-end; gap: 8px;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border); background: var(--bg);
+  }
+  #input {
+    flex: 1; resize: none; max-height: 120px;
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--border); border-radius: 18px;
+    padding: 10px 14px; font-size: 15px; font-family: inherit;
+    line-height: 1.4; outline: none;
+  }
+  #input:focus { border-color: var(--accent); }
+  .send-btn {
+    width: 42px; height: 42px; flex-shrink: 0;
+    border: none; border-radius: 50%; cursor: pointer;
+    background: var(--accent); color: #fff;
+    display: grid; place-items: center;
+  }
+  .send-btn:disabled { opacity: .5; cursor: default; }
+  .send-btn.stop { background: var(--danger); }
+  .send-btn svg { width: 20px; height: 20px; }
+
+  .toast {
+    position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+    background: var(--text); color: var(--bg);
+    padding: 8px 16px; border-radius: 20px; font-size: 13px;
+    opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 50;
+  }
+  .toast.show { opacity: .95; }
+</style>
+</head>
+<body>
+  <header>
+    <span class="title">ИИ-чат</span>
+    <select class="role-select" id="role" title="Роль ИИ">
+      <option value="assistant">🧠 Ассистент</option>
+      <option value="coder">💻 Программист</option>
+      <option value="translator">🌐 Переводчик</option>
+      <option value="writer">✍️ Писатель</option>
+      <option value="coach">🎯 Коуч</option>
+    </select>
+    <button class="icon-btn" id="exportBtn" title="Экспорт в .txt">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/>
+      </svg>
+    </button>
+    <button class="icon-btn" id="themeBtn" title="Тема">
+      <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 12.8A9 9 0 1111.2 3 7 7 0 0021 12.8z"/>
+      </svg>
+    </button>
+  </header>
+
+  <div id="empty">
+    <div>
+      <h2>Чем помочь?</h2>
+      <p>Выбери подсказку или напиши свой вопрос</p>
+    </div>
+    <div class="chips" id="chips">
+      <div class="chip" data-p="Объясни простыми словами, как работает блокчейн">
+        <b>💡 Объясни тему</b><span>как работает блокчейн</span>
+      </div>
+      <div class="chip" data-p="Напиши функцию на Python для проверки палиндрома">
+        <b>💻 Напиши код</b><span>проверка палиндрома на Python</span>
+      </div>
+      <div class="chip" data-p="Составь план на день для продуктивной работы из дома">
+        <b>🎯 Составь план</b><span>продуктивный день дома</span>
+      </div>
+      <div class="chip" data-p="Придумай 5 идей для поста в Telegram-канал про ИИ">
+        <b>✍️ Придумай идеи</b><span>посты про ИИ</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="chat" style="display:none"></div>
+
+  <div class="input-bar">
+    <textarea id="input" rows="1" placeholder="Сообщение…"></textarea>
+    <button class="send-btn" id="sendBtn" title="Отправить">
+      <svg id="sendIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+/* ================== КОНФИГ (отредактируй!) ================== */
+const BACKEND_URL = "aigroqbot.duckdns.org"; // адрес main.py (прокси), БЕЗ / на конце
+
+/* ================== Telegram WebApp ================== */
+const tg = window.Telegram?.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+const INIT_DATA = tg?.initData || "";
+
+/* ================== System prompts по ролям ================== */
+const SYSTEM_PROMPTS = {
+  assistant:  "Ты — умный, дружелюбный ассистент. Отвечай точно, по делу и на русском языке.",
+  coder:      "Ты — опытный программист. Давай рабочий код с краткими пояснениями. Оформляй код в markdown-блоки. Отвечай на русском.",
+  translator: "Ты — профессиональный переводчик. Переводи текст точно, сохраняя смысл и стиль. Если язык не указан — переводи между русским и английским.",
+  writer:     "Ты — талантливый писатель и редактор. Пиши живо, образно, помогай улучшать тексты. Отвечай на русском.",
+  coach:      "Ты — поддерживающий коуч по продуктивности. Задавай уточняющие вопросы, давай конкретные шаги и мотивируй. Отвечай на русском."
+};
+
+/* ================== Состояние ================== */
+let history = [];              // [{role:'user'|'assistant', content}]
+let controller = null;        // AbortController активной генерации
+let autoScroll = true;
+
+const $ = (id) => document.getElementById(id);
+const chatEl = $("chat"), emptyEl = $("empty"), inputEl = $("input");
+const sendBtn = $("sendBtn"), sendIcon = $("sendIcon");
+
+/* ================== Тема ================== */
+function setTheme(t) {
+  document.documentElement.setAttribute("data-theme", t);
+  // луна для светлой (переключит в тёмную), солнце для тёмной
+  $("themeIcon").innerHTML = t === "dark"
+    ? '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4l1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'
+    : '<path d="M21 12.8A9 9 0 1111.2 3 7 7 0 0021 12.8z"/>';
+}
+setTheme("light");
+$("themeBtn").onclick = () => {
+  const cur = document.documentElement.getAttribute("data-theme");
+  setTheme(cur === "dark" ? "light" : "dark");
+};
+
+/* ================== Рендер markdown-lite (безопасный) ================== */
+function escapeHtml(s) {
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+function renderMarkdown(text) {
+  const blocks = [];
+  // 1. блоки кода ```...```
+  let t = text.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+    blocks.push(`<pre><code>${escapeHtml(code)}</code></pre>`);
+    return `\u0000${blocks.length - 1}\u0000`;
+  });
+  t = escapeHtml(t);
+  // 2. инлайн-код `...`
+  t = t.replace(/`([^`]+)`/g, (_, c) => `<code>${c}</code>`);
+  // 3. жирный **...**
+  t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  // 4. переносы строк
+  t = t.replace(/\n/g, "<br>");
+  // 5. возвращаем блоки кода
+  t = t.replace(/\u0000(\d+)\u0000/g, (_, i) => blocks[+i]);
+  return t;
+}
+
+/* ================== Автоскролл ================== */
+chatEl.addEventListener("scroll", () => {
+  const nearBottom = chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight < 60;
+  autoScroll = nearBottom;
+});
+function scrollDown() { if (autoScroll) chatEl.scrollTop = chatEl.scrollHeight; }
+
+/* ================== Добавление сообщений в DOM ================== */
+function showChat() { emptyEl.style.display = "none"; chatEl.style.display = "flex"; }
+
+function addUserMsg(text) {
+  const row = document.createElement("div");
+  row.className = "msg user";
+  row.innerHTML = `<div class="bubble"></div>`;
+  row.querySelector(".bubble").textContent = text;
+  chatEl.appendChild(row);
+  autoScroll = true; scrollDown();
+}
+
+function addAiMsg() {
+  const row = document.createElement("div");
+  row.className = "msg ai";
+  row.innerHTML = `
+    <div class="ai-wrap">
+      <div class="bubble cursor"></div>
+      <button class="copy-btn" style="display:none">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="9" y="9" width="13" height="13" rx="2"/>
+          <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+        </svg><span>Копировать</span></button>`;
+  chatEl.appendChild(row);
+  return {
+    bubble: row.querySelector(".bubble"),
+    copyBtn: row.querySelector(".copy-btn")
+  };
+}
+
+/* ================== Кнопки ================== */
+function attachCopy(btn, getText) {
+  btn.style.display = "inline-flex";
+  btn.onclick = () => {
+    navigator.clipboard.writeText(getText()).then(() => {
+      btn.classList.add("done");
+      btn.querySelector("span").textContent = "Скопировано";
+      setTimeout(() => {
+        btn.classList.remove("done");
+        btn.querySelector("span").textContent = "Копировать";
+      }, 1500);
+    });
+  };
+}
+
+function setSendMode(generating) {
+  if (generating) {
+    sendBtn.classList.add("stop");
+    sendBtn.title = "Остановить генерацию";
+    sendIcon.innerHTML = '<rect x="6" y="6" width="12" height="12" rx="2"/>';
+  } else {
+    sendBtn.classList.remove("stop");
+    sendBtn.title = "Отправить";
+    sendIcon.innerHTML = '<path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>';
+  }
+}
+
+function toast(msg) {
+  const el = $("toast");
+  el.textContent = msg; el.classList.add("show");
+  setTimeout(() => el.classList.remove("show"), 1800);
+}
+
+/* ================== Отправка + стриминг ================== */
+async function send(text) {
+  text = text.trim();
+  if (!text || controller) return;
+
+  showChat();
+  addUserMsg(text);
+  history.push({ role: "user", content: text });
+  inputEl.value = ""; autoResize();
+
+  const { bubble, copyBtn } = addAiMsg();
+  let raw = "";
+
+  controller = new AbortController();
+  setSendMode(true);
+
+  const messages = [
+    { role: "system", content: SYSTEM_PROMPTS[$("role").value] },
+    ...history
+  ];
+
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/chat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Telegram-Init-Data": INIT_DATA
+      },
+      body: JSON.stringify({ messages }),
+      signal: controller.signal
+    });
+
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      throw new Error(e.error || `HTTP ${res.status}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const events = buffer.split("\n\n");
+      buffer = events.pop();           // остаток — недочитанное событие
+
+      for (const evt of events) {
+        const line = evt.trim();
+        if (!line.startsWith("data:")) continue;
+        const data = line.slice(5).trim();
+        if (data === "[DONE]") continue;
+        try {
+          const j = JSON.parse(data);
+          if (j.error) throw new Error(j.error);
+          const delta = j.choices?.[0]?.delta?.content || "";
+          if (delta) {
+            raw += delta;
+            bubble.innerHTML = renderMarkdown(raw);
+            bubble.classList.add("cursor");
+            scrollDown();
+          }
+        } catch (err) {
+          if (err.message && !err.message.includes("JSON")) throw err;
+        }
+      }
+    }
+  } catch (err) {
+    if (err.name === "AbortError") {
+      raw += "\n\n_(остановлено)_";
+    } else {
+      raw = raw || `⚠️ Ошибка: ${err.message}`;
+    }
+  } finally {
+    bubble.classList.remove("cursor");
+    bubble.innerHTML = renderMarkdown(raw);
+    history.push({ role: "assistant", content: raw });
+    attachCopy(copyBtn, () => raw);
+    controller = null;
+    setSendMode(false);
+    scrollDown();
+  }
+}
+
+/* ================== Обработчики ввода ================== */
+function autoResize() {
+  inputEl.style.height = "auto";
+  inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + "px";
+}
+inputEl.addEventListener("input", autoResize);
+inputEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendBtn.click(); }
+});
+
+sendBtn.onclick = () => {
+  if (controller) { controller.abort(); return; }   // режим "стоп"
+  send(inputEl.value);
+};
+
+/* чипы-подсказки */
+$("chips").querySelectorAll(".chip").forEach(chip => {
+  chip.onclick = () => send(chip.dataset.p);
+});
+
+/* ================== Экспорт в .txt ================== */
+$("exportBtn").onclick = () => {
+  if (!history.length) { toast("Чат пуст"); return; }
+  const lines = history.map(m =>
+    (m.role === "user" ? "Вы:\n" : "ИИ:\n") + m.content
+  ).join("\n\n" + "─".repeat(30) + "\n\n");
+  const blob = new Blob([lines], { type: "text/plain;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `chat_${new Date().toISOString().slice(0,10)}.txt`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast("Экспортировано");
+};
+</script>
+</body>
+</html>
