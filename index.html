@@ -240,7 +240,6 @@
 <script>
 /* ================== КОНФИГ (отредактируй!) ================== */
 const BACKEND_URL = "https://aigroqbot.duckdns.org"; // адрес main.py (прокси), БЕЗ / на конце
-const CHANNEL_URL = "https://t.me/+k3dv8e9HyIs1OTVi"; // ссылка на канал для проверки подписки, БЕЗ / на конце
 
 /* ================== Telegram WebApp ================== */
 const tg = window.Telegram?.WebApp;
@@ -372,7 +371,7 @@ function toast(msg) {
   setTimeout(() => el.classList.remove("show"), 1800);
 }
 
-function showSubGate() {
+function showSubGate(channelUrl) {
   showChat();
   const row = document.createElement("div");
   row.className = "msg ai";
@@ -381,8 +380,9 @@ function showSubGate() {
       <b>🔒 Нужна подписка</b><br><br>
       Чтобы пользоваться ИИ-чатом, подпишись на наш канал — это бесплатно.
       <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
-        <button id="subBtn" style="background:var(--accent);color:#fff;border:none;
-          padding:8px 16px;border-radius:10px;font-size:14px;cursor:pointer">
+        <button id="subBtn"
+           style="background:var(--accent);color:#fff;border:none;
+                  padding:8px 16px;border-radius:10px;font-size:14px;cursor:pointer">
           📢 Подписаться
         </button>
         <button id="recheckBtn"
@@ -395,19 +395,16 @@ function showSubGate() {
   chatEl.appendChild(row);
   scrollDown();
 
+  row.querySelector("#subBtn").onclick = () => {
+    if (!channelUrl) { toast("Ссылка на канал недоступна"); return; }
+    if (tg?.openTelegramLink) tg.openTelegramLink(channelUrl);
+    else window.open(channelUrl, "_blank");
+  };
   row.querySelector("#recheckBtn").onclick = () => {
     row.remove();
     toast("Проверяю подписку…");
-    // повторно отправляем последнее, что писал юзер
     const last = [...history].reverse().find(m => m.role === "user");
     if (last) send(last.content); else toast("Напиши сообщение ещё раз");
-  };
-
-  row.querySelector("#subBtn").onclick = () => {
-    if (tg?.openTelegramLink) 
-      tg.openTelegramLink(CHANNEL_URL);
-    else 
-      window.open(CHANNEL_URL, "_blank");
   };
 }
 
@@ -446,9 +443,9 @@ async function send(text) {
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
       if (res.status === 403 || e.error === "subscription required") {
-        bubble.remove();                 // убираем пустой пузырь ИИ
-        showSubGate();                   // показываем экран подписки
-        history.pop();                   // откатываем последнее сообщение юзера из истории
+        bubble.remove();
+        showSubGate(e.channel_url || "");     // ссылка из тела 403
+        history.pop();
         return;
       }
       throw new Error(e.error || `HTTP ${res.status}`);
